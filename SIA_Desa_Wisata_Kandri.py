@@ -7,6 +7,183 @@ from decimal import Decimal
 import os
 import csv
 
+import tkinter as tk
+from tkinter import messagebox, ttk
+import sqlite3
+import re
+
+# =================== DATABASE INIT ===================
+def init_db():
+    conn = sqlite3.connect("akuntansi.db")
+    cur = conn.cursor()
+    # Users (login)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE,
+            password TEXT
+        )
+    """)
+    # Seed default admin jika kosong
+    cur.execute("SELECT COUNT(*) FROM users")
+    if cur.fetchone()[0] == 0:
+        cur.execute("INSERT INTO users (email, password) VALUES (?, ?)", ("admin@example.com", "admin123"))
+    conn.commit()
+    conn.close()
+
+
+# =================== REGISTER ===================
+def open_register_window(root):
+    register_win = tk.Toplevel(root)
+    register_win.title("Daftar")
+    register_win.geometry("400x300")
+
+    tk.Label(register_win, text="Email").pack()
+    email_entry = tk.Entry(register_win)
+    email_entry.pack()
+
+    tk.Label(register_win, text="Password").pack()
+    pass_entry = tk.Entry(register_win, show="*")
+    pass_entry.pack()
+
+    def register():
+        email = email_entry.get()
+        password = pass_entry.get()
+
+        # Cek email valid
+        email_pattern = r"^[\w\.-]+@[\w\.-]+\.\w+$"
+        if not re.match(email_pattern, email):
+            messagebox.showerror("Error", "Format email tidak valid! Contoh: user@gmail.com")
+            return
+
+        if not email or not password:
+            messagebox.showwarning("Peringatan", "Email dan password harus diisi!")
+            return
+
+        conn = sqlite3.connect("akuntansi.db")
+        cur = conn.cursor()
+        try:
+            cur.execute("INSERT INTO users (email, password) VALUES (?, ?)", (email, password))
+            conn.commit()
+            messagebox.showinfo("Sukses", "Pendaftaran berhasil!")
+            register_win.destroy()
+        except sqlite3.IntegrityError:
+            messagebox.showerror("Error", "Email sudah terdaftar!")
+        finally:
+            conn.close()
+
+    tk.Button(register_win, text="Daftar", command=register).pack(pady=10)
+
+
+# =================== DAFTAR USER (Hanya Admin) ===================
+def lihat_daftar_user(root, current_email):
+    if current_email != "admin@example.com":
+        messagebox.showerror("Error", "Hanya admin yang dapat melihat daftar user!")
+        return
+
+    conn = sqlite3.connect("akuntansi.db")
+    cur = conn.cursor()
+    cur.execute("SELECT id, email FROM users")
+    rows = cur.fetchall()
+    conn.close()
+
+    if not rows:
+        messagebox.showinfo("Daftar User", "Belum ada user terdaftar.")
+        return
+
+    win = tk.Toplevel(root)
+    win.title("Daftar User")
+    win.geometry("400x300")
+
+    tk.Label(win, text="Daftar User Terdaftar", font=("Segoe UI", 12, "bold")).pack(pady=10)
+
+    frame = ttk.Frame(win)
+    frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+    tree = ttk.Treeview(frame, columns=("ID", "Email"), show="headings")
+    tree.heading("ID", text="ID")
+    tree.heading("Email", text="Email")
+    tree.column("ID", width=50, anchor="center")
+    tree.column("Email", width=300, anchor="w")
+
+    scrollbar = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+    tree.configure(yscroll=scrollbar.set)
+    tree.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
+
+    for r in rows:
+        tree.insert("", tk.END, values=r)
+
+
+# =================== HOMEPAGE ===================
+def open_homepage(root, user_email):
+    home = tk.Toplevel(root)
+    home.title("Homepage")
+    home.geometry("400x200")
+    tk.Label(home, text=f"Selamat datang, {user_email}!").pack(pady=20)
+    tk.Label(home, text="Ini adalah halaman utama aplikasi.").pack()
+
+    # Tombol lanjut ke menu utama
+    tk.Button(home, text="Masuk Menu Utama", command=lambda: [home.destroy(), open_main_menu(root, user_email)]).pack(pady=10)
+
+
+# =================== MENU UTAMA ===================
+def open_main_menu(root, user_email):
+    main_win = tk.Toplevel(root)
+    main_win.title("Menu Utama")
+    main_win.geometry("500x400")
+
+    tk.Label(main_win, text=f"Menu Utama - User: {user_email}", font=("Segoe UI", 12, "bold")).pack(pady=20)
+
+    tk.Button(main_win, text="Lihat Daftar User (Admin)", command=lambda: lihat_daftar_user(main_win, user_email)).pack(pady=5)
+    # Tambahkan menu lain sesuai sistemmu
+
+
+# =================== LOGIN ===================
+def open_login_window():
+    root = tk.Tk()
+    root.title("Login")
+    root.geometry("400x300")
+
+    tk.Label(root, text="Selamat datang!").pack(pady=20)
+
+    tk.Label(root, text="Email").pack()
+    email_entry = tk.Entry(root)
+    email_entry.pack()
+
+    tk.Label(root, text="Password").pack()
+    pass_entry = tk.Entry(root, show="*")
+    pass_entry.pack()
+
+    def login():
+        email = email_entry.get()
+        password = pass_entry.get()
+        conn = sqlite3.connect("akuntansi.db")
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE email=? AND password=?", (email, password))
+        user = cur.fetchone()
+        conn.close()
+
+        if user:
+            messagebox.showinfo("Sukses", "Login berhasil!")
+            root.destroy()
+            open_homepage(root, email)
+        else:
+            messagebox.showerror("Error", "Email atau password salah!")
+
+    tk.Button(root, text="Login", command=login).pack(pady=10)
+    tk.Button(root, text="Daftar", command=lambda: open_register_window(root)).pack(pady=5)
+
+    root.protocol("WM_DELETE_WINDOW", root.destroy)  # kalau ditutup, program berhenti
+    root.mainloop()
+
+
+# =================== MAIN ===================
+if __name__ == "__main__":
+    init_db()
+    open_login_window()
+
+
 # Optional libs (Excel/PDF). We'll handle missing libs gracefully.
 try:
     from openpyxl import Workbook
